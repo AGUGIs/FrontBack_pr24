@@ -1,0 +1,29 @@
+{
+  "name": "online-store-server",
+  "version": "1.0.0",
+  "description": "Backend for Online Store - Практические занятия 1-24",
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "dev": "node app.js",
+    "cert": "node setup-https.js",
+    "verify-https": "node verify-https.js",
+    "vapid": "npx web-push generate-vapid-keys",
+    "test:api": "node scripts/test-api.js"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "node-forge": "^1.4.0",
+    "socket.io": "^4.7.4",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.0",
+    "web-push": "^3.6.7",
+    "pg": "^8.13.1",
+    "sequelize": "^6.37.5",
+    "mongoose": "^8.9.5",
+    "redis": "^4.7.0"
+  }
+}

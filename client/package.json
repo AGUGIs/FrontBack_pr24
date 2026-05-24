@@ -1,0 +1,30 @@
+{
+  "name": "online-store-client",
+  "version": "1.0.0",
+  "private": true,
+  "dependencies": {
+    "axios": "^1.6.7",
+    "cross-env": "^7.0.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
+    "react-scripts": "5.0.1",
+    "sass": "^1.70.0",
+    "socket.io-client": "^4.7.4"
+  },
+  "scripts": {
+    "start": "cross-env PORT=3001 BROWSER=none react-scripts start",
+    "start:open": "cross-env PORT=3001 BROWSER=./scripts/open-browser.js react-scripts start",
+    "start:win": "set PORT=3001&& set BROWSER=none&& react-scripts start",
+    "start:unix": "PORT=3001 BROWSER=none react-scripts start",
+    "build": "react-scripts build",
+    "test": "react-scripts test",
+    "eject": "react-scripts eject",
+    "sass": "sass src --style compressed --quiet",
+    "dev": "npm run sass & npm run start"
+  },
+  "browserslist": {
+    "production": [">0.2%", "not dead", "not op_mini all"],
+    "development": ["last 1 chrome version", "last 1 firefox version", "last 1 safari version"]
+  }
+}

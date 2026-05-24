@@ -1,0 +1,6 @@
+node_modules
+vapid-keys.json
+localhost.pem
+localhost-key.pem
+ca.pem
+ca-key.pem

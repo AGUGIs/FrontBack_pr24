@@ -1,0 +1,388 @@
+{
+  "info": {
+    "_postman_id": "kastryula-market-2026",
+    "name": "КастрюляМаркет API",
+    "description": "Готовый набор запросов к бэкенду магазина «КастрюляМаркет» (ПР19–24).\n\nАвторизация:\n1. Сначала выполни «Register» (создаёт пользователя в PostgreSQL).\n2. Затем «Login» — он автоматически сохранит accessToken / refreshToken в переменные коллекции, и все последующие защищённые запросы заработают сразу.\n\nДанные распределены так:\n• PostgreSQL (shop_users) — клиенты магазина: /api/auth/*, /api/users/*\n• MongoDB (shop_products) — товары: /api/products/*\n• Redis — кэш списков на 60 / 600 секунд (видно по полю `source` в ответе)\n\nПорты по умолчанию: API 3000, Nginx-LB 8080, HAProxy-LB 8081.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000", "type": "string" },
+    { "key": "nginxLbUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "haproxyLbUrl", "value": "http://localhost:8081", "type": "string" },
+    { "key": "accessToken", "value": "", "type": "string" },
+    { "key": "refreshToken", "value": "", "type": "string" },
+    { "key": "userId", "value": "", "type": "string" },
+    { "key": "productId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "item": [
+        {
+          "name": "GET /api/health/databases",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/health/databases", "host": ["{{baseUrl}}"], "path": ["api", "health", "databases"] },
+            "description": "Возвращает {postgres: true, mongo: true, redis: true} если все три БД подключены."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Auth — PostgreSQL (shop_users)",
+      "description": "Регистрация и логин клиентов магазина. Данные пишутся в таблицу `shop_users` локального PostgreSQL.",
+      "item": [
+        {
+          "name": "POST /api/auth/register",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('userId', body.id);",
+                  "    console.log('Зарегистрирован пользователь', body.email, 'id=', body.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"first_name\": \"Тест\",\n  \"last_name\": \"Тестов\",\n  \"password\": \"qwerty123\",\n  \"role\": \"admin\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "auth", "register"] },
+            "description": "Создаёт нового клиента в `shop_users`. Поля:\n• email — уникальный, хранится в нижнем регистре\n• first_name, last_name — ФИО\n• password — bcrypt-хеш кладётся в password_hash\n• role — user/seller/admin (по умолчанию user)\n\nОтвет: 201 + созданный пользователь без хеша пароля."
+          }
+        },
+        {
+          "name": "POST /api/auth/login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', body.refreshToken);",
+                  "    console.log('Логин успешен, токены сохранены в коллекцию');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"test@example.com\",\n  \"password\": \"qwerty123\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] },
+            "description": "Вход. Проверяет email + bcrypt.compare пароля. При успехе возвращает пару токенов и автоматически сохраняет их в переменные коллекции `accessToken` и `refreshToken`."
+          }
+        },
+        {
+          "name": "POST /api/auth/refresh",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('accessToken', body.accessToken);",
+                  "    pm.collectionVariables.set('refreshToken', body.refreshToken);",
+                  "    console.log('Токены обновлены');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/auth/refresh", "host": ["{{baseUrl}}"], "path": ["api", "auth", "refresh"] },
+            "description": "Обновляет пару токенов. Старый refresh-токен инвалидируется (одноразовый), выдаётся новая пара."
+          }
+        },
+        {
+          "name": "GET /api/auth/me",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/auth/me", "host": ["{{baseUrl}}"], "path": ["api", "auth", "me"] },
+            "description": "Возвращает данные пользователя из JWT (через `req.user.sub` → `ShopUser.findByPk`)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Users — PostgreSQL (admin only)",
+      "description": "Управление клиентами. Требуется роль admin. Кэшируется в Redis на 60 секунд.",
+      "item": [
+        {
+          "name": "GET /api/users",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/users", "host": ["{{baseUrl}}"], "path": ["api", "users"] },
+            "description": "Список всех клиентов из `shop_users`.\n\nПервый запрос: ответ `{source: \"server\", data: [...]}` — данные взяты из PostgreSQL и положены в Redis.\nВторой запрос за 60 секунд: `{source: \"cache\", data: [...]}` — отдано из Redis.\n\nКэш сбрасывается при `POST /api/auth/register`, `PUT /api/users/:id`, `DELETE /api/users/:id`."
+          }
+        },
+        {
+          "name": "GET /api/users/:id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/users/{{userId}}", "host": ["{{baseUrl}}"], "path": ["api", "users", "{{userId}}"] },
+            "description": "Один клиент по id. Использует `userId` из переменной коллекции (заполняется автоматически после Register)."
+          }
+        },
+        {
+          "name": "PUT /api/users/:id",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"first_name\": \"Изменённое\",\n  \"last_name\": \"Имя\",\n  \"role\": \"seller\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/users/{{userId}}", "host": ["{{baseUrl}}"], "path": ["api", "users", "{{userId}}"] },
+            "description": "Изменить имя/фамилию/роль клиента. После сохранения сбрасывается кэш `users:all` и `users:<id>`."
+          }
+        },
+        {
+          "name": "DELETE /api/users/:id (toggle block)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/users/{{userId}}", "host": ["{{baseUrl}}"], "path": ["api", "users", "{{userId}}"] },
+            "description": "Переключатель блокировки клиента (toggle blocked). Заблокированный не может залогиниться."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Products — MongoDB (shop_products)",
+      "description": "Управление каталогом товаров. GET-запросы кэшируются в Redis на 600 секунд (10 минут).",
+      "item": [
+        {
+          "name": "GET /api/products (первый запрос — source: server)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    const list = body.data || body;",
+                  "    if (Array.isArray(list) && list.length > 0) {",
+                  "        pm.collectionVariables.set('productId', list[0].id);",
+                  "        console.log('Сохранён productId первого товара:', list[0].id);",
+                  "    }",
+                  "    if (body.source) console.log('Источник ответа:', body.source);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api", "products"] },
+            "description": "Список товаров из MongoDB. Публичный (без авторизации).\n\nПервый запрос за 10 минут → `{source: \"server\", data: [...]}`.\nВторой и последующие → `{source: \"cache\"}`.\n\nАвтоматически сохраняет id первого товара в `productId` для следующих запросов."
+          }
+        },
+        {
+          "name": "GET /api/products (второй запрос — source: cache)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api", "products"] },
+            "description": "Тот же запрос повторно — должен прийти из Redis (`source: \"cache\"`)."
+          }
+        },
+        {
+          "name": "GET /api/products/:id",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["api", "products", "{{productId}}"] },
+            "description": "Один товар по `_id` MongoDB. Требует авторизации (любая роль)."
+          }
+        },
+        {
+          "name": "POST /api/products (создать товар)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 201) {",
+                  "    const body = pm.response.json();",
+                  "    pm.collectionVariables.set('productId', body.id);",
+                  "    console.log('Создан товар:', body.title, 'id=', body.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Сковорода с керамическим покрытием\",\n  \"category\": \"Сковороды\",\n  \"description\": \"Лёгкая сковорода с антипригарным керамическим покрытием. Подходит для индукционных плит.\",\n  \"price\": 2990,\n  \"stock\": 25,\n  \"rating\": 4.5,\n  \"image\": \"https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcS8gWBRCeI4K7tpTHCfvNq8wzBlE1yVgVgqjg&s\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api", "products"] },
+            "description": "Создание товара. Только для ролей `seller` или `admin`. После создания сбрасывается кэш `products:all`, поэтому следующий GET вернёт `source: server`. Сокет рассылает `productAdded`, push отправляется подписчикам."
+          }
+        },
+        {
+          "name": "PUT /api/products/:id (обновить)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 3490,\n  \"stock\": 20\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["api", "products", "{{productId}}"] },
+            "description": "Изменить цену и/или остаток. Любое поле в теле необязательное — обновляются только переданные."
+          }
+        },
+        {
+          "name": "DELETE /api/products/:id (только admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["api", "products", "{{productId}}"] },
+            "description": "Удалить товар. Только для `admin`. После удаления сбрасывается кэш."
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Redis cache demo",
+      "description": "Демонстрация инвалидации кэша. Запусти запросы по порядку.",
+      "item": [
+        {
+          "name": "1) GET /api/products → source: server",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api", "products"] }
+          }
+        },
+        {
+          "name": "2) GET /api/products → source: cache",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api", "products"] }
+          }
+        },
+        {
+          "name": "3) POST /api/products → сбрасывает кэш",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{accessToken}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Тестовая кастрюля для проверки кэша\",\n  \"category\": \"Тест\",\n  \"description\": \"Создаётся, чтобы инвалидировать кэш products:all\",\n  \"price\": 100,\n  \"stock\": 1,\n  \"rating\": 5\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api", "products"] }
+          }
+        },
+        {
+          "name": "4) GET /api/products → опять source: server",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/products", "host": ["{{baseUrl}}"], "path": ["api", "products"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Load Balancing (ПР22)",
+      "description": "Демонстрация распределения запросов между backend-1, backend-2, backend-3. Запусти эти ручки несколько раз подряд — поле `server` в ответе должно чередоваться.",
+      "item": [
+        {
+          "name": "GET через Nginx LB (порт 8080)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{nginxLbUrl}}/", "host": ["{{nginxLbUrl}}"], "path": [""] },
+            "description": "Round Robin между backend-1 и backend-2. backend-3 — backup, появляется только при падении первых двух."
+          }
+        },
+        {
+          "name": "GET через HAProxy LB (порт 8081)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{haproxyLbUrl}}/", "host": ["{{haproxyLbUrl}}"], "path": [""] },
+            "description": "Альтернативный балансировщик с health-check `GET /health`."
+          }
+        },
+        {
+          "name": "GET /health (через Nginx)",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{nginxLbUrl}}/health", "host": ["{{nginxLbUrl}}"], "path": ["health"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Negative / RBAC tests",
+      "description": "Сценарии «должно отказать»: 401 без токена, 403 для не-admin, 404 на несуществующий товар.",
+      "item": [
+        {
+          "name": "GET /api/users без токена → 401",
+          "request": {
+            "method": "GET",
+            "url": { "raw": "{{baseUrl}}/api/users", "host": ["{{baseUrl}}"], "path": ["api", "users"] }
+          }
+        },
+        {
+          "name": "GET /api/products/:id с битым токеном → 401",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer broken.token.here" }],
+            "url": { "raw": "{{baseUrl}}/api/products/{{productId}}", "host": ["{{baseUrl}}"], "path": ["api", "products", "{{productId}}"] }
+          }
+        },
+        {
+          "name": "GET /api/products/000000000000000000000000 → 404",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{accessToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/products/000000000000000000000000", "host": ["{{baseUrl}}"], "path": ["api", "products", "000000000000000000000000"] }
+          }
+        }
+      ]
+    }
+  ]
+}

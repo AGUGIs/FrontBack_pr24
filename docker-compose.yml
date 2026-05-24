@@ -1,0 +1,146 @@
+# КастрюляМаркет — Docker Compose (ПР21–23)
+#
+# Запуск всего бэкенда одной командой:
+#   docker compose up --build -d
+#
+# Доступ снаружи (с хоста / pgAdmin / Compass / curl):
+#   API магазина:        http://localhost:3000/
+#   Балансировка Nginx:  http://localhost:8080/
+#   Балансировка HAProxy: http://localhost:8081/
+#   PostgreSQL:          localhost:5433  (user=postgres, pass=postgres, db=kastryula_market)
+#   MongoDB:             localhost:27017
+#   Redis:               localhost:6379
+#
+# Postgres специально проброшен на 5433, а не 5432 — чтобы не конфликтовать
+# с локально установленным PostgreSQL на Windows (он обычно занимает 5432).
+# Внутри docker-сети контейнеры общаются по имени `postgres:5432`,
+# поэтому api это никак не ломает.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: kastryula_market
+    ports:
+      - "5433:5432"   # хост:контейнер — 5433 наружу, чтобы не биться с локальным Postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      HTTP_ONLY: "true"
+      PG_HOST: postgres
+      PG_USER: postgres
+      PG_PASSWORD: postgres
+      PG_DATABASE: kastryula_market
+      MONGO_URI: mongodb://mongo:27017/kastryula_market
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  backend1:
+    build: ./docker/backend
+    environment:
+      SERVER_ID: backend-1
+      PORT: "3000"
+    networks:
+      - lb-network
+
+  backend2:
+    build: ./docker/backend
+    environment:
+      SERVER_ID: backend-2
+      PORT: "3000"
+    networks:
+      - lb-network
+
+  backend3:
+    build: ./docker/backend
+    environment:
+      SERVER_ID: backend-3
+      PORT: "3000"
+    networks:
+      - lb-network
+
+  nginx-lb:
+    image: nginx:alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend1
+      - backend2
+      - backend3
+    networks:
+      - lb-network
+
+  haproxy-lb:
+    image: haproxy:2.9-alpine
+    ports:
+      - "8081:80"
+    volumes:
+      - ./docker/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      - backend1
+      - backend2
+      - backend3
+    networks:
+      - lb-network
+
+networks:
+  app-network:
+    driver: bridge
+  lb-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  mongo_data:
