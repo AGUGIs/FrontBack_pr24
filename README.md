@@ -2,9 +2,6 @@
 
 Краткое описание того, что делает каждая практика и как она реализована в проекте.
 
-Готовая коллекция запросов для Postman лежит в [`postman/`](./postman/).
-Документация по HTTPS-окружению — в [`VSCODE.md`](./VSCODE.md) и [`WINDOWS_HTTPS.md`](./WINDOWS_HTTPS.md).
-
 ---
 
 ## ПР19 — PostgreSQL и Sequelize
